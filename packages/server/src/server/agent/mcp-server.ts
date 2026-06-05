@@ -81,7 +81,7 @@ import {
   listPaseoWorktreesCommand,
 } from "../worktree/commands.js";
 import { registerBrowserTools } from "../browser-tools/mcp-tools.js";
-import type { BrowserToolsBroker } from "../browser-tools/index.js";
+import type { BrowserToolsBroker } from "../browser-tools/broker.js";
 
 export interface AgentMcpServerOptions {
   agentManager: AgentManager;
