@@ -15,10 +15,8 @@ import { useMutation } from "@tanstack/react-query";
 import { ProjectIconView } from "@/components/project-icon-view";
 import { AdaptiveRenameModal } from "@/components/rename-modal";
 import {
-  createContext,
   memo,
   useCallback,
-  useContext,
   useMemo,
   useState,
   useEffect,
@@ -269,6 +267,7 @@ interface ProjectHeaderRowProps {
 
 interface WorkspaceRowInnerProps {
   workspace: SidebarWorkspaceEntry;
+  subtitle?: string | null;
   selected: boolean;
   shortcutNumber: number | null;
   showShortcutBadge: boolean;
@@ -1195,17 +1194,6 @@ function useLongPressDragInteraction(input: {
   };
 }
 
-function useProjectHostLabel(
-  project: SidebarProjectEntry,
-  workspace: SidebarWorkspaceEntry | null,
-): string | null {
-  const hostLabelMap = useContext(HostLabelMapContext);
-  if (project.projectKind === "git" || project.workspaces.length !== 1) {
-    return null;
-  }
-  return hostLabelMap.get(workspace?.serverId ?? "") ?? null;
-}
-
 function ProjectHeaderRow({
   project,
   displayName,
@@ -1230,7 +1218,6 @@ function ProjectHeaderRow({
 }: ProjectHeaderRowProps) {
   const [isHovered, setIsHovered] = useState(false);
   const isMobileBreakpoint = useIsCompactFormFactor();
-  const hostLabel = useProjectHostLabel(project, workspace);
   const handleBeginWorkspaceSetup = useCallback(() => {
     if (!worktreeTarget) {
       return;
@@ -1293,14 +1280,6 @@ function ProjectHeaderRow({
           <Text style={styles.projectTitle} numberOfLines={1}>
             {displayName}
           </Text>
-          {hostLabel ? (
-            <>
-              <Text style={styles.projectHostSeparator}>·</Text>
-              <Text style={styles.projectHostLabel} numberOfLines={1}>
-                {hostLabel}
-              </Text>
-            </>
-          ) : null}
         </View>
       </View>
       <ProjectRowTrailingActions
@@ -1372,6 +1351,7 @@ function ProjectHeaderRow({
 
 function WorkspaceRowInner({
   workspace,
+  subtitle,
   selected,
   shortcutNumber,
   showShortcutBadge,
@@ -1453,6 +1433,7 @@ function WorkspaceRowInner({
             >
               <SidebarWorkspaceRowContent
                 workspace={workspace}
+                subtitle={subtitle}
                 scriptIconKind={scriptIconKind}
                 isHovered={isHovered}
                 isLoading={isArchiving || isCreating}
@@ -1487,6 +1468,7 @@ function WorkspaceRowInner({
 
 function WorkspaceRowWithMenu({
   workspace,
+  subtitle,
   selected,
   shortcutNumber,
   showShortcutBadge,
@@ -1498,6 +1480,7 @@ function WorkspaceRowWithMenu({
   isCreating = false,
 }: {
   workspace: SidebarWorkspaceEntry;
+  subtitle?: string | null;
   selected: boolean;
   shortcutNumber: number | null;
   showShortcutBadge: boolean;
@@ -1630,6 +1613,7 @@ function WorkspaceRowWithMenu({
     <>
       <WorkspaceRowInner
         workspace={workspace}
+        subtitle={subtitle}
         selected={selected}
         shortcutNumber={shortcutNumber}
         showShortcutBadge={showShortcutBadge}
@@ -1670,6 +1654,7 @@ function WorkspaceRowWithMenu({
 
 interface WorkspaceRowItemProps {
   workspace: SidebarWorkspacePlacement;
+  subtitle?: string | null;
   shortcutNumber: number | null;
   showShortcutBadge: boolean;
   canCopyBranchName: boolean;
@@ -1684,6 +1669,7 @@ interface WorkspaceRowItemProps {
 
 function WorkspaceRowItem({
   workspace,
+  subtitle,
   shortcutNumber,
   showShortcutBadge,
   canCopyBranchName,
@@ -1706,6 +1692,7 @@ function WorkspaceRowItem({
   return (
     <WorkspaceRow
       workspace={workspace}
+      subtitle={subtitle}
       shortcutNumber={shortcutNumber}
       showShortcutBadge={showShortcutBadge}
       canCopyBranchName={canCopyBranchName}
@@ -1742,6 +1729,7 @@ function areWorkspaceRowItemPropsEqual(
   });
   return (
     previous.workspace === next.workspace &&
+    previous.subtitle === next.subtitle &&
     previous.shortcutNumber === next.shortcutNumber &&
     previous.showShortcutBadge === next.showShortcutBadge &&
     previous.canCopyBranchName === next.canCopyBranchName &&
@@ -1758,6 +1746,7 @@ const MemoWorkspaceRowItem = memo(WorkspaceRowItem, areWorkspaceRowItemPropsEqua
 
 function WorkspaceRow({
   workspace,
+  subtitle,
   shortcutNumber,
   showShortcutBadge,
   onPress,
@@ -1769,6 +1758,7 @@ function WorkspaceRow({
   selected,
 }: {
   workspace: SidebarWorkspacePlacement;
+  subtitle?: string | null;
   shortcutNumber: number | null;
   showShortcutBadge: boolean;
   onPress: () => void;
@@ -1788,6 +1778,7 @@ function WorkspaceRow({
   return (
     <WorkspaceRowWithMenu
       workspace={hydratedWorkspace}
+      subtitle={subtitle}
       selected={selected}
       shortcutNumber={shortcutNumber}
       showShortcutBadge={showShortcutBadge}
@@ -1820,6 +1811,7 @@ function ProjectBlock({
   useNestable,
   creatingWorkspaceIds,
   activeWorkspaceSelection,
+  hostLabelByServerId,
 }: {
   project: SidebarProjectEntry;
   collapsed: boolean;
@@ -1839,6 +1831,7 @@ function ProjectBlock({
   useNestable: boolean;
   creatingWorkspaceIds: ReadonlySet<string>;
   activeWorkspaceSelection: ActiveWorkspaceSelection | null;
+  hostLabelByServerId: ReadonlyMap<string, string>;
 }) {
   const rowModel = useMemo(
     () =>
@@ -1867,6 +1860,11 @@ function ProjectBlock({
       return (
         <MemoWorkspaceRowItem
           workspace={item}
+          subtitle={
+            project.hosts.length > 1
+              ? (hostLabelByServerId.get(item.serverId) ?? item.serverId)
+              : null
+          }
           shortcutNumber={shortcutIndexByWorkspaceKey.get(item.workspaceKey) ?? null}
           showShortcutBadge={showShortcutBadges}
           canCopyBranchName={project.projectKind === "git"}
@@ -1882,8 +1880,10 @@ function ProjectBlock({
     },
     [
       project.projectKind,
+      project.hosts.length,
       activeWorkspaceSelection,
       creatingWorkspaceIds,
+      hostLabelByServerId,
       onWorkspacePress,
       selectionEnabled,
       shortcutIndexByWorkspaceKey,
@@ -2031,6 +2031,7 @@ function areProjectBlockPropsEqual(previous: ProjectBlockProps, next: ProjectBlo
     previous.selectionEnabled === next.selectionEnabled &&
     previous.showShortcutBadges === next.showShortcutBadges &&
     previous.shortcutIndexByWorkspaceKey === next.shortcutIndexByWorkspaceKey &&
+    previous.hostLabelByServerId === next.hostLabelByServerId &&
     previous.parentGestureRef === next.parentGestureRef &&
     previous.onToggleCollapsed === next.onToggleCollapsed &&
     previous.onWorkspacePress === next.onWorkspacePress &&
@@ -2071,9 +2072,6 @@ function areProjectBlockSelectionsEqual(
   );
 }
 
-export const HostLabelMapContext = createContext<Map<string, string>>(new Map());
-export const MultiHostProjectKeysContext = createContext<Set<string>>(new Set());
-
 const MemoProjectBlock = memo(ProjectBlock, areProjectBlockPropsEqual);
 
 export function SidebarWorkspaceList({
@@ -2093,24 +2091,13 @@ export function SidebarWorkspaceList({
 }: SidebarWorkspaceListProps) {
   const pathname = usePathname();
   const hosts = useHosts();
-
-  const hostLabelMap = useMemo(() => {
-    const map = new Map<string, string>();
+  const hostLabelByServerId = useMemo(() => {
+    const labels = new Map<string, string>();
     for (const host of hosts) {
-      map.set(host.serverId, host.label?.trim() || host.serverId);
+      labels.set(host.serverId, host.label?.trim() || host.serverId);
     }
-    return map;
+    return labels;
   }, [hosts]);
-
-  const multiHostProjectKeys = useMemo(() => {
-    const result = new Set<string>();
-    for (const project of projects) {
-      if (project.hosts.length > 1) {
-        result.add(project.projectKey);
-      }
-    }
-    return result;
-  }, [projects]);
 
   const content =
     groupMode === "status" ? (
@@ -2131,16 +2118,11 @@ export function SidebarWorkspaceList({
         listFooterComponent={listFooterComponent}
         parentGestureRef={parentGestureRef}
         pathname={pathname}
+        hostLabelByServerId={hostLabelByServerId}
       />
     );
 
-  return (
-    <HostLabelMapContext.Provider value={hostLabelMap}>
-      <MultiHostProjectKeysContext.Provider value={multiHostProjectKeys}>
-        {content}
-      </MultiHostProjectKeysContext.Provider>
-    </HostLabelMapContext.Provider>
-  );
+  return content;
 }
 
 function SidebarStatusModeWrapper({
@@ -2177,11 +2159,13 @@ function ProjectModeList({
   listFooterComponent,
   parentGestureRef,
   pathname,
+  hostLabelByServerId,
 }: Omit<
   SidebarWorkspaceListProps,
   "statusWorkspacePlacements" | "projectNamesByKey" | "groupMode" | "isRefreshing" | "onRefresh"
 > & {
   pathname: string;
+  hostLabelByServerId: ReadonlyMap<string, string>;
 }) {
   const { t } = useTranslation();
   const [creatingWorkspaceIds, setCreatingWorkspaceIds] = useState<Set<string>>(() => new Set());
@@ -2368,6 +2352,7 @@ function ProjectModeList({
           useNestable={platformIsNative}
           creatingWorkspaceIds={creatingWorkspaceIds}
           activeWorkspaceSelection={activeWorkspaceSelection}
+          hostLabelByServerId={hostLabelByServerId}
         />
       );
     },
@@ -2376,6 +2361,7 @@ function ProjectModeList({
       activeWorkspaceSelection,
       handleWorktreeCreated,
       handleWorkspaceReorder,
+      hostLabelByServerId,
       onWorkspacePress,
       onToggleProjectCollapsed,
       parentGestureRef,
@@ -2549,19 +2535,6 @@ const styles = StyleSheet.create((theme) => ({
   },
   projectTitle: {
     color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
-    fontWeight: "400",
-    minWidth: 0,
-    flexShrink: 1,
-  },
-  projectHostSeparator: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
-    fontWeight: "400",
-    flexShrink: 0,
-  },
-  projectHostLabel: {
-    color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
     fontWeight: "400",
     minWidth: 0,
