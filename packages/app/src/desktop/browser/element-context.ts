@@ -98,6 +98,31 @@ export interface GenericBrowserElementSelection {
   };
 }
 
+const EDITORS = new Set<BrowserElementEditor>([
+  "text",
+  "textarea",
+  "number",
+  "boolean",
+  "select",
+  "multiselect",
+  "color",
+  "radio",
+  "checkbox-group",
+  "slider",
+  "date",
+  "time",
+  "datetime",
+  "json",
+  "code",
+  "key-value",
+  "table",
+  "custom",
+]);
+const MAX_FIELDS = 100;
+const MAX_OPTIONS = 200;
+const MAX_STRING_LENGTH = 4_000;
+const MAX_JSON_DEPTH = 5;
+const MAX_JSON_ITEMS = 100;
 const GENERIC_INPUT_EDITORS: Partial<Record<string, BrowserElementEditor>> = {
   range: "slider",
   number: "number",
@@ -106,6 +131,166 @@ const GENERIC_INPUT_EDITORS: Partial<Record<string, BrowserElementEditor>> = {
   time: "time",
   "datetime-local": "datetime",
 };
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value))
+    : null;
+}
+
+function text(value: unknown, maxLength = MAX_STRING_LENGTH): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized ? normalized.slice(0, maxLength) : null;
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeJson(value: unknown, depth = 0): BrowserElementJson | undefined {
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value === "string") return value.slice(0, MAX_STRING_LENGTH);
+  if (depth >= MAX_JSON_DEPTH) return undefined;
+  if (Array.isArray(value)) {
+    const result: BrowserElementJson[] = [];
+    for (const item of value.slice(0, MAX_JSON_ITEMS)) {
+      const normalized = normalizeJson(item, depth + 1);
+      if (normalized !== undefined) result.push(normalized);
+    }
+    return result;
+  }
+  const source = record(value);
+  if (!source) return undefined;
+  const result: { [key: string]: BrowserElementJson } = {};
+  for (const [key, item] of Object.entries(source).slice(0, MAX_JSON_ITEMS)) {
+    const normalized = normalizeJson(item, depth + 1);
+    if (normalized !== undefined) result[key.slice(0, 200)] = normalized;
+  }
+  return result;
+}
+
+function normalizeOptions(value: unknown): BrowserElementOption[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const options: BrowserElementOption[] = [];
+  for (const rawOption of value.slice(0, MAX_OPTIONS)) {
+    const option = record(rawOption);
+    const label = text(option?.label, 300);
+    const optionValue = normalizeJson(option?.value);
+    if (!label || optionValue === undefined) continue;
+    options.push({
+      label,
+      value: optionValue,
+      ...(option?.disabled === true ? { disabled: true } : {}),
+    });
+  }
+  return options.length > 0 ? options : undefined;
+}
+
+function addFieldTextProperties(field: BrowserElementField, input: Record<string, unknown>): void {
+  const path = text(input.path, 500);
+  const group = text(input.group, 300);
+  const description = text(input.description, 1_000);
+  const placeholder = text(input.placeholder, 500);
+  const unit = text(input.unit, 50);
+  const language = text(input.language, 100);
+  if (path) field.path = path;
+  if (group) field.group = group;
+  if (description) field.description = description;
+  if (placeholder) field.placeholder = placeholder;
+  if (unit) field.unit = unit;
+  if (language) field.language = language;
+}
+
+function addFieldControlProperties(
+  field: BrowserElementField,
+  input: Record<string, unknown>,
+): void {
+  const options = normalizeOptions(input.options);
+  const min = optionalNumber(input.min);
+  const max = optionalNumber(input.max);
+  const step = optionalNumber(input.step);
+  if (input.required === true) field.required = true;
+  if (input.readOnly === true) field.readOnly = true;
+  if (input.disabled === true) field.disabled = true;
+  if (options) field.options = options;
+  if (min !== undefined) field.min = min;
+  if (max !== undefined) field.max = max;
+  if (step !== undefined) field.step = step;
+}
+
+function normalizeField(value: unknown): BrowserElementField | null {
+  const input = record(value);
+  if (!input) return null;
+  const id = text(input?.id, 300);
+  const label = text(input?.label, 500);
+  const rawEditor = text(input?.editor, 100);
+  const normalizedValue = normalizeJson(input?.value);
+  if (!id || !label || !rawEditor || normalizedValue === undefined) return null;
+  const editor = EDITORS.has(rawEditor as BrowserElementEditor)
+    ? (rawEditor as BrowserElementEditor)
+    : "custom";
+  const field: BrowserElementField = {
+    id,
+    label,
+    editor,
+    value: normalizedValue,
+  };
+  addFieldTextProperties(field, input);
+  addFieldControlProperties(field, input);
+  if (editor === "custom") field.customEditor = text(input.customEditor, 200) ?? rawEditor;
+  return field;
+}
+
+function normalizeTarget(
+  target: Record<string, unknown>,
+  id: string,
+  label: string,
+): BrowserElementContext["target"] {
+  const result: BrowserElementContext["target"] = { id, label };
+  const kind = text(target.kind, 200);
+  const selector = text(target.selector, 1_000);
+  const source = text(target.source, 1_000);
+  const revision = text(target.revision, 200);
+  if (kind) result.kind = kind;
+  if (selector) result.selector = selector;
+  if (source) result.source = source;
+  if (revision) result.revision = revision;
+  return result;
+}
+
+export function normalizeBrowserElementContext(value: unknown): BrowserElementContext | null {
+  const input = record(value);
+  if (!input) return null;
+  const provider = record(input?.provider);
+  const target = record(input?.target);
+  if (!provider || !target) return null;
+  const providerId = text(provider?.id, 200);
+  const targetId = text(target?.id, 500);
+  const targetLabel = text(target?.label, 500);
+  if (input?.version !== 1 || !providerId || !targetId || !targetLabel) return null;
+
+  const fields: BrowserElementField[] = [];
+  const fieldIds = new Set<string>();
+  if (Array.isArray(input.fields)) {
+    for (const rawField of input.fields.slice(0, MAX_FIELDS)) {
+      const field = normalizeField(rawField);
+      if (!field || fieldIds.has(field.id)) continue;
+      fieldIds.add(field.id);
+      fields.push(field);
+    }
+  }
+  const extraContext = normalizeJson(input.context);
+  const providerLabel = text(provider.label, 300);
+  return {
+    version: 1,
+    provider: providerLabel ? { id: providerId, label: providerLabel } : { id: providerId },
+    target: normalizeTarget(target, targetId, targetLabel),
+    fields,
+    ...(extraContext !== undefined ? { context: extraContext } : {}),
+  };
+}
 
 function createGenericInputField(
   selection: GenericBrowserElementSelection,

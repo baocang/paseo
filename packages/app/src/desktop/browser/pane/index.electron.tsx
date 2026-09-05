@@ -51,6 +51,7 @@ import { ElementContextPanel } from "@/desktop/browser/element-context-panel.ele
 import {
   createGenericBrowserElementContext,
   formatBrowserElementContext,
+  normalizeBrowserElementContext,
   type BrowserElementChange,
   type BrowserElementContext,
 } from "@/desktop/browser/element-context";
@@ -1192,7 +1193,9 @@ export function BrowserPane({
         void screenshotElementToClipboard(selection);
         return;
       }
-      const elementContext = createGenericBrowserElementContext(selection);
+      const elementContext =
+        normalizeBrowserElementContext(selection.elementContext) ??
+        createGenericBrowserElementContext(selection);
       const pending = { ...selection, elementContext };
       previewFailureShownRef.current = false;
       pendingScreenshotRef.current = {

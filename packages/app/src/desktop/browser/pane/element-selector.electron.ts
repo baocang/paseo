@@ -392,6 +392,40 @@ export function buildElementSelectorScript(sessionToken: string): string {
         }
         return out;
       }
+      function withProviderTimeout(value) {
+        return Promise.race([
+          Promise.resolve(value),
+          new Promise(function(_, reject) { window.setTimeout(function() { reject(new Error('provider timeout')); }, 1000); })
+        ]);
+      }
+      async function resolveElementContext(el) {
+        var registry = window.__PASEO_ELEMENT_CONTEXT__;
+        if (!registry || registry.version !== 1 || !Array.isArray(registry.providers)) return null;
+        var providers = registry.providers.slice().sort(function(a, b) { return Number(b.priority || 0) - Number(a.priority || 0); });
+        var candidates = [];
+        var candidate = el;
+        while (candidate && candidates.length < 12) { candidates.push(candidate); candidate = candidate.parentElement; }
+        for (var i = 0; i < providers.length; i++) {
+          var provider = providers[i];
+          if (!provider || typeof provider.resolve !== 'function') continue;
+          for (var j = 0; j < candidates.length; j++) {
+            try {
+              var matches = typeof provider.match !== 'function' || await withProviderTimeout(provider.match(candidates[j]));
+              if (!matches) continue;
+              var resolved = await withProviderTimeout(provider.resolve(candidates[j], {
+                clickedElement: el,
+                selector: buildSelector(el),
+                url: location.href
+              }));
+              if (resolved) return resolved;
+            } catch (error) {
+              console.warn('[paseo-element-context] provider failed', provider.id || 'unknown', error);
+              break;
+            }
+          }
+        }
+        return null;
+      }
       async function selectAt(e) {
         if (selecting) return;
         e.preventDefault();
@@ -425,6 +459,7 @@ export function buildElementSelectorScript(sessionToken: string): string {
           children: getChildSummary(el, 8)
         };
         deactivate();
+        result.elementContext = await resolveElementContext(el);
         window.__paseoSelectorResult = result;
       }
       function onClick(e) {
