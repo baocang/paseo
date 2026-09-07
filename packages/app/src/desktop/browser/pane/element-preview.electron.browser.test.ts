@@ -5,6 +5,12 @@ import {
   restoreElementPreview,
 } from "./element-preview.electron";
 
+function fixtureElement<T extends HTMLElement>(selector: string): T {
+  const element = document.querySelector<T>(selector);
+  expect(element, `Fixture element ${selector}`).not.toBeNull();
+  return element!;
+}
+
 afterEach(() => {
   window.eval("window.__paseoElementPreview?.destroy() ");
   document.body.replaceChildren();
@@ -14,8 +20,7 @@ describe("element preview guest script", () => {
   it("immediately previews over important page styles and restores their original priority", () => {
     document.body.innerHTML =
       '<style>#title { color: red !important; font-size: 12px !important; }</style><h2 id="title" style="color: green !important">Original</h2>';
-    const title = document.querySelector<HTMLElement>("#title");
-    if (!title) throw new Error("Expected title");
+    const title = fixtureElement("#title");
 
     window.eval(
       buildElementPreviewScript({
@@ -64,8 +69,7 @@ describe("element preview guest script", () => {
   it("previews and restores every selected option in a multiple select", () => {
     document.body.innerHTML =
       '<select id="regions" multiple><option selected value="a">A</option><option selected value="b">B</option><option value="c">C</option></select>';
-    const select = document.querySelector<HTMLSelectElement>("#regions");
-    if (!select) throw new Error("Expected select");
+    const select = fixtureElement<HTMLSelectElement>("#regions");
     window.eval(
       buildElementPreviewScript({
         selector: "#regions",
@@ -80,9 +84,8 @@ describe("element preview guest script", () => {
   it("restores the original radio group selection", () => {
     document.body.innerHTML =
       '<input id="first" type="radio" name="choice" checked><input id="second" type="radio" name="choice">';
-    const first = document.querySelector<HTMLInputElement>("#first");
-    const second = document.querySelector<HTMLInputElement>("#second");
-    if (!first || !second) throw new Error("Expected radios");
+    const first = fixtureElement<HTMLInputElement>("#first");
+    const second = fixtureElement<HTMLInputElement>("#second");
     window.eval(
       buildElementPreviewScript({
         selector: "#second",
@@ -96,8 +99,7 @@ describe("element preview guest script", () => {
 
   it("previews DOM text and styles, then restores the inspection snapshot", () => {
     document.body.innerHTML = '<h2 id="title" style="color: red">Original</h2>';
-    const title = document.querySelector<HTMLElement>("#title");
-    if (!title) throw new Error("Expected title");
+    const title = fixtureElement("#title");
 
     window.eval(
       buildElementPreviewScript({
@@ -119,8 +121,7 @@ describe("element preview guest script", () => {
 
   it("restores before replaying the latest change set", () => {
     document.body.innerHTML = '<input id="name" value="Original">';
-    const input = document.querySelector<HTMLInputElement>("#name");
-    if (!input) throw new Error("Expected input");
+    const input = fixtureElement<HTMLInputElement>("#name");
 
     window.eval(
       buildElementPreviewScript({
@@ -142,8 +143,7 @@ describe("element preview guest script", () => {
 
   it("does not replace nested markup for a text change", () => {
     document.body.innerHTML = '<button id="action"><span>Original</span></button>';
-    const action = document.querySelector<HTMLButtonElement>("#action");
-    if (!action) throw new Error("Expected action");
+    const action = fixtureElement<HTMLButtonElement>("#action");
 
     window.eval(
       buildElementPreviewScript({

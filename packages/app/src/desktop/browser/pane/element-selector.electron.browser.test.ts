@@ -9,6 +9,25 @@ interface SelectorWindow extends Window {
   __paseoSelectorResult: BrowserElementSelection | null;
 }
 
+function fixtureElement<T extends HTMLElement>(selector: string): T {
+  const element = document.querySelector<T>(selector);
+  expect(element, `Fixture element ${selector}`).not.toBeNull();
+  return element!;
+}
+
+function selectedSelector(guest: SelectorWindow): string {
+  const selector = guest.__paseoSelectorResult?.selector;
+  expect(selector).toEqual(expect.any(String));
+  expect(selector).not.toBe("");
+  return selector!;
+}
+
+async function selectElement(element: HTMLElement): Promise<void> {
+  element.click();
+  // Let browser checkbox/radio default-action rollback finish before reading state.
+  await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+}
+
 function mountFixture(html: string): SelectorWindow {
   document.body.innerHTML = html;
   Object.defineProperty(document, "elementsFromPoint", {
@@ -48,24 +67,23 @@ describe("element selector guest script", () => {
         },
       },
     ],
-  ])("selects a special ID with %s", (_label, pageCss) => {
+  ])("selects a special ID with %s", async (_label, pageCss) => {
     const originalCss = Object.getOwnPropertyDescriptor(window, "CSS");
+    expect(originalCss).toEqual(expect.objectContaining({ configurable: true }));
     try {
       Object.defineProperty(window, "CSS", { configurable: true, value: pageCss });
       const guest = mountFixture(
         '<button id=":r0:" data-hit style="width:100px;height:40px">Target</button>',
       );
-      const button = document.getElementById(":r0:");
-      if (!button) throw new Error("Expected target");
+      const button = fixtureElement("[data-hit]");
 
-      button.click();
+      await selectElement(button);
 
-      const selector = guest.__paseoSelectorResult?.selector;
-      if (!selector) throw new Error("Expected selector");
+      const selector = selectedSelector(guest);
       expect(document.querySelectorAll(selector)).toHaveLength(1);
       expect(document.querySelector(selector)).toBe(button);
     } finally {
-      if (originalCss) Object.defineProperty(window, "CSS", originalCss);
+      Object.defineProperty(window, "CSS", originalCss!);
     }
   });
 
@@ -79,44 +97,38 @@ describe("element selector guest script", () => {
     "space id",
     "slash\\id",
     "\u{1f600}",
-  ])("escapes the selected ID %s", (id) => {
+  ])("escapes the selected ID %s", async (id) => {
     const guest = mountFixture('<button data-hit style="width:100px;height:40px">Target</button>');
-    const button = document.querySelector("button");
-    if (!button) throw new Error("Expected target");
+    const button = fixtureElement("button");
     button.id = id;
 
-    button.click();
+    await selectElement(button);
 
-    const selector = guest.__paseoSelectorResult?.selector;
-    if (!selector) throw new Error("Expected selector");
+    const selector = selectedSelector(guest);
     expect(document.querySelectorAll(selector)).toHaveLength(1);
     expect(document.querySelector(selector)).toBe(button);
   });
 
-  it("uniquely locates a first child under a duplicated ancestor ID", () => {
+  it("uniquely locates a first child under a duplicated ancestor ID", async () => {
     const guest = mountFixture(`
       <section id="duplicate"><button id="same" data-hit>Target</button><button>Other</button></section>
       <section id="duplicate"><button id="same">Elsewhere</button></section>
     `);
-    const button = document.querySelector<HTMLButtonElement>("[data-hit]");
-    if (!button) throw new Error("Expected target");
+    const button = fixtureElement<HTMLButtonElement>("[data-hit]");
 
-    button.click();
+    await selectElement(button);
 
-    const selector = guest.__paseoSelectorResult?.selector;
-    if (!selector) throw new Error("Expected selector");
+    const selector = selectedSelector(guest);
     expect(document.querySelectorAll(selector)).toHaveLength(1);
     expect(document.querySelector(selector)).toBe(button);
   });
 
   it.each([false, true])("captures the original checkbox state %s", async (checked) => {
     const guest = mountFixture('<input type="checkbox" data-hit>');
-    const checkbox = document.querySelector<HTMLInputElement>("input");
-    if (!checkbox) throw new Error("Expected checkbox");
+    const checkbox = fixtureElement<HTMLInputElement>("input");
     checkbox.checked = checked;
 
-    checkbox.click();
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    await selectElement(checkbox);
 
     expect(checkbox.checked).toBe(checked);
     expect(guest.__paseoSelectorResult?.runtimeProperties?.checked).toBe(checked);
@@ -127,12 +139,10 @@ describe("element selector guest script", () => {
       <input id="original" type="radio" name="choice" checked>
       <input id="target" type="radio" name="choice" data-hit>
     `);
-    const original = document.querySelector<HTMLInputElement>("#original");
-    const target = document.querySelector<HTMLInputElement>("#target");
-    if (!original || !target) throw new Error("Expected radios");
+    const original = fixtureElement<HTMLInputElement>("#original");
+    const target = fixtureElement<HTMLInputElement>("#target");
 
-    target.click();
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    await selectElement(target);
 
     expect(original.checked).toBe(true);
     expect(target.checked).toBe(false);
@@ -144,11 +154,9 @@ describe("element selector guest script", () => {
       <button id="repair" data-hit style="width:120px;height:40px">Repair</button>
       <div id="overlay" data-hit style="opacity:0"><button id="ghost">Hidden</button></div>
     `);
-    const button = document.querySelector<HTMLElement>("#repair");
-    if (!button) throw new Error("Expected repair button");
+    const button = fixtureElement("#repair");
 
-    button.click();
-    await Promise.resolve();
+    await selectElement(button);
 
     expect(guest.__paseoSelectorResult?.selector).toBe("#repair");
     expect(button.classList.contains("__paseo-selected")).toBe(true);
@@ -160,11 +168,9 @@ describe("element selector guest script", () => {
     const guest = mountFixture(`
       <p id="leaf" data-hit style="font: 600 18px Inter; color: rgb(10, 20, 30)">Leaf</p>
     `);
-    const leaf = document.querySelector<HTMLElement>("#leaf");
-    if (!leaf) throw new Error("Expected leaf text");
+    const leaf = fixtureElement("#leaf");
 
-    leaf.click();
-    await Promise.resolve();
+    await selectElement(leaf);
 
     expect(guest.__paseoSelectorResult?.computedStyles).toMatchObject({
       "font-size": "18px",
@@ -177,8 +183,7 @@ describe("element selector guest script", () => {
     const guest = mountFixture(
       '<button id="mobile-action" data-hit style="width:100px;height:44px">Submit</button>',
     );
-    const button = document.querySelector<HTMLElement>("#mobile-action");
-    if (!button) throw new Error("Expected mobile action");
+    const button = fixtureElement("#mobile-action");
     const down = pointerEvent("pointerdown", { y: 40, pointerId: 7 });
     let clickCount = 0;
     button.addEventListener("click", () => {
@@ -187,8 +192,7 @@ describe("element selector guest script", () => {
 
     button.dispatchEvent(down);
     button.dispatchEvent(pointerEvent("pointerup", { y: 40, pointerId: 7 }));
-    button.click();
-    await Promise.resolve();
+    await selectElement(button);
 
     expect(down.defaultPrevented).toBe(false);
     expect(guest.__paseoSelectorResult?.selector).toBe("#mobile-action");
@@ -199,15 +203,13 @@ describe("element selector guest script", () => {
     const guest = mountFixture(
       '<button id="mobile-action" data-hit style="width:100px;height:44px">Submit</button>',
     );
-    const button = document.querySelector<HTMLElement>("#mobile-action");
-    if (!button) throw new Error("Expected mobile action");
+    const button = fixtureElement("#mobile-action");
     const move = pointerEvent("pointermove", { y: 70, pointerId: 11 });
 
     button.dispatchEvent(pointerEvent("pointerdown", { y: 40, pointerId: 11 }));
     button.dispatchEvent(move);
     button.dispatchEvent(pointerEvent("pointerup", { y: 70, pointerId: 11 }));
-    button.click();
-    await Promise.resolve();
+    await selectElement(button);
 
     expect(move.defaultPrevented).toBe(false);
     expect(guest.__paseoSelectorResult).toBeNull();
